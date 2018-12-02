@@ -18,6 +18,14 @@ from rsa._compat import zip
 
 """Common functionality shared by several modules."""
 
+def bit_length(int_type):
+    " Return the number of bits necessary to represent an integer in binary, excluding the sign and leading zeros "
+    length = 0
+    while (int_type):
+        int_type >>= 1
+        length += 1
+    return(length)
+
 
 class NotRelativePrimeError(ValueError):
     def __init__(self, a, b, d, msg=None):
@@ -51,7 +59,7 @@ def bit_size(num):
     """
 
     try:
-        return num.bit_length()
+        return bit_length(num)
     except AttributeError:
         raise TypeError('bit_size(num) only supports integers, not %r' % type(num))
 

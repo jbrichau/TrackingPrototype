@@ -36,8 +36,8 @@ from rsa import common, transform, core
 
 # ASN.1 codes that describe the hash algorithm used.
 HASH_ASN1 = {
-    'MD5': b'\x30\x20\x30\x0c\x06\x08\x2a\x86\x48\x86\xf7\x0d\x02\x05\x05\x00\x04\x10',
-    'SHA-1': b'\x30\x21\x30\x09\x06\x05\x2b\x0e\x03\x02\x1a\x05\x00\x04\x14',
+    # 'MD5': b'\x30\x20\x30\x0c\x06\x08\x2a\x86\x48\x86\xf7\x0d\x02\x05\x05\x00\x04\x10',
+    # 'SHA-1': b'\x30\x21\x30\x09\x06\x05\x2b\x0e\x03\x02\x1a\x05\x00\x04\x14',
     'SHA-224': b'\x30\x2d\x30\x0d\x06\x09\x60\x86\x48\x01\x65\x03\x04\x02\x04\x05\x00\x04\x1c',
     'SHA-256': b'\x30\x31\x30\x0d\x06\x09\x60\x86\x48\x01\x65\x03\x04\x02\x01\x05\x00\x04\x20',
     'SHA-384': b'\x30\x41\x30\x0d\x06\x09\x60\x86\x48\x01\x65\x03\x04\x02\x02\x05\x00\x04\x30',
@@ -45,8 +45,8 @@ HASH_ASN1 = {
 }
 
 HASH_METHODS = {
-    'MD5': hashlib.md5,
-    'SHA-1': hashlib.sha1,
+    # 'MD5': hashlib.md5,
+    # 'SHA-1': hashlib.sha1,
     'SHA-224': hashlib.sha224,
     'SHA-256': hashlib.sha256,
     'SHA-384': hashlib.sha384,
@@ -298,8 +298,8 @@ def sign(message, priv_key, hash_method):
         requested hash.
 
     """
-
     msg_hash = compute_hash(message, hash_method)
+
     return sign_hash(msg_hash, priv_key, hash_method)
 
 

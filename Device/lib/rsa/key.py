@@ -160,8 +160,7 @@ class AbstractKey(object):
 
         See https://en.wikipedia.org/wiki/Blinding_%28cryptography%29
         """
-
-        return (message * pow(r, self.e, self.n)) % self.n
+        return (message * rsa.core.fast_pow(r, self.e, self.n)) % self.n
 
     def unblind(self, blinded, r):
         """Performs blinding on the message using random number 'r'.

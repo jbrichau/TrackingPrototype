@@ -16,7 +16,8 @@
 
 """Functions that load and write PEM-encoded files."""
 
-import base64
+"import base64"
+import ubinascii
 
 from rsa._compat import is_bytes, range
 
@@ -57,7 +58,7 @@ def load_pem(contents, pem_marker):
     pem_lines = []
     in_pem_part = False
 
-    for line in contents.splitlines():
+    for line in contents.split(b'\n'):
         line = line.strip()
 
         # Skip empty lines
@@ -96,7 +97,7 @@ def load_pem(contents, pem_marker):
 
     # Base64-decode the contents
     pem = b''.join(pem_lines)
-    return base64.standard_b64decode(pem)
+    return ubinascii.a2b_base64(pem)
 
 
 def save_pem(contents, pem_marker):
@@ -113,7 +114,7 @@ def save_pem(contents, pem_marker):
 
     (pem_start, pem_end) = _markers(pem_marker)
 
-    b64 = base64.standard_b64encode(contents).replace(b'\n', b'')
+    b64 = ubinascii.b2a_base64(contents).replace(b'\n', b'')
     pem_lines = [pem_start]
 
     for block_start in range(0, len(b64), 64):

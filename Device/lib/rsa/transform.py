@@ -19,7 +19,7 @@
 From bytes to a number, number to bytes, etc.
 """
 
-from __future__ import absolute_import
+"from __future__ import absolute_import"
 
 import binascii
 from struct import pack
@@ -200,12 +200,14 @@ def int2bytes(number, fill_size=None, chunk_size=None, overflow=False):
                     "Need %d bytes for number, but fill size is %d" %
                     (length, fill_size)
             )
-        raw_bytes = raw_bytes.rjust(fill_size, b'\x00')
+        #raw_bytes = raw_bytes.rjust(fill_size, b'\x00')
+        raw_bytes = "% {}s".format(fill_size).encode() % raw_bytes
     elif chunk_size and chunk_size > 0:
         remainder = length % chunk_size
         if remainder:
             padding_size = chunk_size - remainder
-            raw_bytes = raw_bytes.rjust(length + padding_size, b'\x00')
+            #raw_bytes = raw_bytes.rjust(length + padding_size, b'\x00')
+            raw_bytes = "% {}s".format(length + padding_size).encode() % raw_bytes
     return raw_bytes
 
 

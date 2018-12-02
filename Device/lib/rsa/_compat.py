@@ -16,7 +16,7 @@
 
 """Python compatibility wrappers."""
 
-from __future__ import absolute_import
+"from __future__ import absolute_import"
 
 import itertools
 import sys
