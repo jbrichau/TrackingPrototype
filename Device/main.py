@@ -132,6 +132,7 @@ def set_RTC():
     rtc = machine.RTC()
     # dns lookup on nb-iot does not work...
     # rtc.ntp_sync("pool.ntp.org")
+    rtc.ntp_sync('193.190.253.212')
     utime.sleep_ms(750)
     print('\nRTC Set from NTP to UTC:', rtc.now())
     utime.timezone(3600)

@@ -55,7 +55,11 @@ def request(method, url, data=None, json=None, headers={}, stream=None):
 
     s = usocket.socket(ai[0], ai[1], ai[2])
     try:
-        s.connect(ai[-1])
+        # dns lookup on nb-iot does not work...
+        if host == 'cloudiotdevice.googleapis.com':
+            s.connect(('172.217.20.106', 443))
+        else: 
+            s.connect(ai[-1])
         if proto == "https:":
             s = ussl.wrap_socket(s, server_hostname=host)
         s.write(b"%s /%s HTTP/1.0\r\n" % (method, path))
