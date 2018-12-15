@@ -27,7 +27,6 @@ class MicroJWT:
             # The audience field should always be set to the GCP project id.
             'aud': project_id
         }
-        print('Creating JWT with token {}'.format(self.token))
         self.encoded = self.encode(self.token, private_key, algorithm)
 
     def isValid(self):

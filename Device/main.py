@@ -3,8 +3,6 @@ import math
 import network
 import os
 import time
-import gc
-import pycom
 import socket
 import ssl
 import rsa
@@ -19,19 +17,34 @@ from network import LTE
 from LIS2HH12 import LIS2HH12
 #from mqtt import MQTTClient
 from ubinascii import b2a_base64
+from network import Server
 import string
 import config
-#from http.client import HTTPConnection
 
-gc.enable()
-pycom.heartbeat(False)
 lte = None
 wlan = None
+server = None
 current_jwt = None
 py = Pytrack()
 l76 = L76GNSS(py, timeout=30)
 acc = LIS2HH12()
+sd = SD()
+os.mount(sd, '/sd')
 TOKEN_VALIDITY = 3600
+MEASURE_INTERVAL = 60
+
+def debugprint(string):
+    now = machine.RTC().now()
+    isodatetime = "{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}+00:00 - ".format(now[0],now[1],now[2],now[3],now[4],now[5],now[6])
+    print(isodatetime + string)
+    debuglog = open('/sd/debuglog.txt', 'a')
+    debuglog.write(isodatetime + string + '\n')
+    debuglog.close()
+
+def loggps(coord):
+    gpslog = open('/sd/gpslog.txt', 'a')
+    gpslog.write(coord+'\n')
+    gpslog.close()
 
 def rgb_to_hex(red, green, blue):
     "Return color as #rrggbb for the given color values."
@@ -48,11 +61,12 @@ def led_Breathe():
     for i in range(0,75):
         color = led_color(i)
         pycom.rgbled(int(color,16))
-        time.sleep(0.040)
+        time.sleep(0.010)
+    time.sleep(0.500)
     for i in range(75,0,-1):
         color = led_color(i)
         pycom.rgbled(int(color,16))
-        time.sleep(0.040)
+        time.sleep(0.010)
     pycom.rgbled(0x000000)
 
 # Returns True when lte global has an LTE object with an active Internet connection.
@@ -68,14 +82,14 @@ def get_LTE():
     # lte.send_at_cmd('AT+CGDCONT=1,"IP","nbiot.iot"')
     lte.attach(band=20, apn="nbiot.iot")
     while not lte.isattached():
-        print('Attaching...')
+        debugprint('Attaching...')
         time.sleep(1)
-    print('LTE attach succeeded!')
+    debugprint('LTE attach succeeded!')
     lte.connect()
     while not lte.isconnected():
-        print('Connecting...')
+        debugprint('Connecting...')
         time.sleep(1)
-    print('LTE connection succeeded!')
+    debugprint('LTE connection succeeded!')
     return True
 
 # Clean disconnection of the LTE network is required for future
@@ -84,15 +98,15 @@ def end_LTE():
     global lte
     if lte == None:
         return
-    print("Disonnecting LTE ... ")
+    debugprint("Disonnecting LTE ... ")
     lte.disconnect()
-    print("OK")
-    print("Detaching LTE ... ")
+    debugprint("OK")
+    debugprint("Detaching LTE ... ")
     lte.dettach()
-    print("OK")
-    print("Shuttting down LTE...")
+    debugprint("OK")
+    debugprint("Shuttting down LTE...")
     lte.deinit()
-    print("OK")
+    debugprint("OK")
     lte = None
 
 def get_WLAN():
@@ -104,34 +118,35 @@ def get_WLAN():
     nets = wlan.scan()
     for net in nets:
         if net.ssid == config.WLAN_SSID:
-            print('Network found!')
+            debugprint('Network found!')
             wlan.connect(net.ssid, auth=(net.sec, config.WLAN_WPA), timeout=5000)
             attempts = 0
             while (not wlan.isconnected()) and (attempts < 10):
-                print('Connecting...')
+                debugprint('Connecting...')
                 attempts = attempts + 1
                 time.sleep(1)
             if wlan.isconnected():
-                print('WLAN connection succeeded')
+                debugprint('WLAN connection succeeded')
                 return True
             else:
-                print('WLAN connection failed')
+                debugprint('WLAN connection failed')
                 end_WLAN()
                 return False
-        else:
-            end_WLAN()
-            return False
+    debugprint('No known WLAN SSID found')
+    wlan.deinit()
+    wlan = None
+    return False
 
 def end_WLAN():
     global wlan
     if wlan == None:
         return
-    print("Disonnecting WLAN ... ")
+    debugprint("Disconnecting WLAN ... ")
     wlan.disconnect()
-    print("OK")
-    print("Shuttting down WLAN...")
+    debugprint("OK")
+    debugprint("Shuttting down WLAN...")
     wlan.deinit()
-    print("OK")
+    debugprint("OK")
     wlan = None
             
 # Set the internal real-time clock.
@@ -141,9 +156,9 @@ def set_RTC():
     # rtc.ntp_sync("pool.ntp.org")
     rtc.ntp_sync('193.190.253.212')
     time.sleep_ms(750)
-    print('\nRTC Set from NTP to UTC:', rtc.now())
+    debugprint('RTC Set from NTP to UTC: ' + str(rtc.now()))
     time.timezone(3600)
-    print('Adjusted from UTC to EST timezone', time.localtime(), '\n')
+    debugprint('Adjusted from UTC to EST timezone: ' + str(time.localtime()))
 
 def b42_urlsafe_encode(payload):
     return string.translate(b2a_base64(payload)[:-1].decode('utf-8'),{ ord('+'):'-', ord('/'):'_' })
@@ -159,19 +174,19 @@ def b42_urlsafe_encode(payload):
 def send_http_payload(project_id, cloud_region, registry_id, device_id, private_key, payload):
     global current_jwt
     if current_jwt == None or not current_jwt.isValid():
+        print('Creating JWT...')
         current_jwt = jwt.new(project_id, private_key, 'RS256', TOKEN_VALIDITY)
     url = 'https://cloudiotdevice.googleapis.com/v1/projects/{}/locations/{}/registries/{}/devices/{}:publishEvent'.format(project_id, cloud_region, registry_id, device_id)
-    print('sending...')
-    print(payload)    
+    debugprint('sending...')
+    debugprint(payload)    
     # payload = '{}/{}/payload-{}'.format(registry_id, device_id, payload)
     data = { 'binary_data': b42_urlsafe_encode(payload) }
-    request = requests.post(url, json=data, headers={"authorization": "Bearer {}".format(current_jwt.encodedValue()), "cache-control": "no-cache"})
-    print('sent!')
-    request.close()
-
-# sd = SD()
-# os.mount(sd, '/sd')
-# f = open('/sd/gps-record.txt', 'w')​
+    try:
+        request = requests.post(url, json=data, headers={"authorization": "Bearer {}".format(current_jwt.encodedValue()), "cache-control": "no-cache"})
+        debugprint('sent!')
+        request.close()
+    except:
+        debugprint('!!! sending failed')
 
 def ensure_network():
     if get_WLAN():
@@ -193,21 +208,33 @@ def end_network():
 try:
     ensure_network()
     set_RTC()
+    if (not wlan == None):
+        debugprint('Starting ftp server')
+        server = Server(login=(config.ftpuser, config.ftppassword), timeout=60)
+    last_measurement = -MEASURE_INTERVAL - 1
     while (True):
         led_Breathe()
-        coord = l76.position()
-        pitch = acc.pitch() 
-        roll = acc.roll()
-        if not coord[0] == None:
-            ensure_network()
-            now = machine.RTC().now()
-            isodatetime = "{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}+00:00".format(now[0],now[1],now[2],now[3],now[4],now[5],now[6])
-            volt = py.read_battery_voltage()
-            send_http_payload(config.project_id, config.cloud_region, config.registry_id, config.device_id, config.private_key,
-                              '{{"timestamp":"{}","lat":{},"lon":{},"alt":{},"pitch":{},"roll":{},"volt":{}}}'.format(isodatetime,coord[0], coord[1], coord[2], pitch, roll,volt))
-        else:
-            print('No position to send')
-        time.sleep(60)
+        now = time.time()
+        if (last_measurement + MEASURE_INTERVAL < now):
+            coord = l76.position()
+            pitch = acc.pitch() 
+            roll = acc.roll()
+            last_measurement = now
+            if not coord[0] == None:
+                ensure_network()
+                now = machine.RTC().now()
+                isodatetime = "{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}+00:00".format(now[0],now[1],now[2],now[3],now[4],now[5],now[6])
+                volt = py.read_battery_voltage()
+                send_http_payload(config.project_id, config.cloud_region, config.registry_id, config.device_id, config.private_key,
+                                  '{{"timestamp":"{}","lat":{},"lon":{},"alt":{},"pitch":{},"roll":{},"volt":{}}}'.format(isodatetime,coord[0], coord[1], coord[2], pitch, roll,volt))
+            else:
+                debugprint('No position to send')
+        time.sleep(5)
+        if (not wlan == None and (server == None or not server.isrunning())):
+            debugprint('Restarting ftp server')
+            server = Server(login=(config.ftpuser, config.ftppassword), timeout=60)
 
 finally:
+    if (not server == None):
+        server.deinit()
     end_network()
