@@ -1,9 +1,9 @@
 import machine
 import math
 import network
+import socket
 import os
 import time
-import socket
 import ssl
 import rsa
 import microjwt as jwt
@@ -80,17 +80,33 @@ def get_LTE():
         return True
     # lte.reset()
     # lte.send_at_cmd('AT+CGDCONT=1,"IP","nbiot.iot"')
-    lte.attach(band=20, apn="nbiot.iot")
+    if (not lte.isattached()):
+        lte.attach(band=20, apn="nbiot.iot")
     while not lte.isattached():
         debugprint('Attaching...')
         time.sleep(1)
-    debugprint('LTE attach succeeded!')
-    lte.connect()
+    debugprint('LTE is attached')
+    return True
+
+def connect_LTE():
+    if (lte == None):
+        return
+    if (not lte.isconnected()):
+        lte.connect()
     while not lte.isconnected():
         debugprint('Connecting...')
         time.sleep(1)
-    debugprint('LTE connection succeeded!')
-    return True
+    debugprint('LTE is connected!')
+    socket.dnsserver(0,'8.8.8.8')
+    socket.dnsserver(1,'4.4.4.4')
+
+def disconnect_LTE():
+    if (lte == None):
+        return
+    if (lte.isconnected()):
+        debugprint("Disonnecting LTE... ")
+        lte.disconnect()
+    debugprint("LTE is disconnected")
 
 # Clean disconnection of the LTE network is required for future
 # successful connections without a complete power cycle between.
@@ -98,15 +114,16 @@ def end_LTE():
     global lte
     if lte == None:
         return
-    debugprint("Disonnecting LTE ... ")
-    lte.disconnect()
-    debugprint("OK")
+    if (lte.isconnected()):
+        debugprint("Disonnecting LTE ... ")
+        lte.disconnect()
+        debugprint("LTE disconnected")
     debugprint("Detaching LTE ... ")
     lte.dettach()
-    debugprint("OK")
+    debugprint("LTE detached")
     debugprint("Shuttting down LTE...")
     lte.deinit()
-    debugprint("OK")
+    debugprint("LTE shutdown")
     lte = None
 
 def get_WLAN():
@@ -151,14 +168,16 @@ def end_WLAN():
             
 # Set the internal real-time clock.
 def set_RTC():
+    connect_LTE()
     rtc = machine.RTC()
-    # dns lookup on nb-iot does not work...
-    # rtc.ntp_sync("pool.ntp.org")
-    rtc.ntp_sync('193.190.253.212')
-    time.sleep_ms(750)
+    rtc.ntp_sync("pool.ntp.org",3600)
+    while not rtc.synced():
+        debugprint('Syncing RTC...')
+        time.sleep_ms(750)
     debugprint('RTC Set from NTP to UTC: ' + str(rtc.now()))
     time.timezone(3600)
     debugprint('Adjusted from UTC to EST timezone: ' + str(time.localtime()))
+    disconnect_LTE()
 
 def b42_urlsafe_encode(payload):
     return string.translate(b2a_base64(payload)[:-1].decode('utf-8'),{ ord('+'):'-', ord('/'):'_' })
@@ -177,16 +196,22 @@ def send_http_payload(project_id, cloud_region, registry_id, device_id, private_
         print('Creating JWT...')
         current_jwt = jwt.new(project_id, private_key, 'RS256', TOKEN_VALIDITY)
     url = 'https://cloudiotdevice.googleapis.com/v1/projects/{}/locations/{}/registries/{}/devices/{}:publishEvent'.format(project_id, cloud_region, registry_id, device_id)
-    debugprint('sending...')
-    debugprint(payload)    
-    # payload = '{}/{}/payload-{}'.format(registry_id, device_id, payload)
     data = { 'binary_data': b42_urlsafe_encode(payload) }
     try:
-        request = requests.post(url, json=data, headers={"authorization": "Bearer {}".format(current_jwt.encodedValue()), "cache-control": "no-cache"})
+        connect_LTE()
+        debugprint('sending...')
+        debugprint(payload)
+        response = requests.post(url, json=data, headers={"authorization": "Bearer {}".format(current_jwt.encodedValue()), "cache-control": "no-cache"})
+        # conn = HTTPSConnection("172.217.20.106")
+        # conn.request("POST", url, body=ujson.dumps(data) ,headers={"authorization": "Bearer {}".format(current_jwt.encodedValue())})
+        # response = conn.getresponse()
         debugprint('sent!')
-        request.close()
+        print(response.text)
+        #response.close()
     except:
         debugprint('!!! sending failed')
+    finally:
+        disconnect_LTE()
 
 def ensure_network():
     if get_WLAN():
@@ -220,21 +245,26 @@ try:
             pitch = acc.pitch() 
             roll = acc.roll()
             last_measurement = now
-            if not coord[0] == None:
-                ensure_network()
-                now = machine.RTC().now()
-                isodatetime = "{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}+00:00".format(now[0],now[1],now[2],now[3],now[4],now[5],now[6])
-                volt = py.read_battery_voltage()
-                send_http_payload(config.project_id, config.cloud_region, config.registry_id, config.device_id, config.private_key,
-                                  '{{"timestamp":"{}","lat":{},"lon":{},"alt":{},"pitch":{},"roll":{},"volt":{}}}'.format(isodatetime,coord[0], coord[1], coord[2], pitch, roll,volt))
-            else:
-                debugprint('No position to send')
+            # if not coord[0] == None:
+            ensure_network()
+            now = machine.RTC().now()
+            isodatetime = "{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}+00:00".format(now[0],now[1],now[2],now[3],now[4],now[5],now[6])
+            volt = py.read_battery_voltage()
+            send_http_payload(config.project_id, config.cloud_region, config.registry_id, config.device_id, config.private_key,
+                                  '{{"timestamp":"{}","lat":{},"lon":{},"alt":{},"pitch":{},"roll":{},"volt":{}}}'.format(isodatetime, coord[0] if coord[0] != None else 'null', coord[1] if coord[1] != None else 'null', coord[2] if coord[2] != '' else 'null', pitch, roll, volt))
+            # else:
+            #     debugprint('No position to send')
         time.sleep(5)
         if (not wlan == None and (server == None or not server.isrunning())):
             debugprint('Restarting ftp server')
             server = Server(login=(config.ftpuser, config.ftppassword), timeout=60)
 
+except Exception as e:
+    debugprint('Exception occurred: '+ str(e))
+
 finally:
     if (not server == None):
         server.deinit()
     end_network()
+debugprint('Resetting...')
+machine.reset()
